@@ -1,0 +1,182 @@
+DATA_SEG SEGMENT
+    KEYCODE DB  01EH,030H,02EH,020H,012H,021H,022H,023H,017H,024H,025H,026H,032H,031H,018H,019H,010H,013H,01FH,014H,016H,02FH,011H,02DH,015H,02CH
+    COUNT  DW  0
+    FLAG   DW  0
+    MESSAGE     DB  'BLING$'
+    MESSAGE1    DB  'DISABLED$'
+    MESSAGE2    DB  'CODING$'
+    NEXT_LAST_ADDER EQU $+1
+DATA_SEG ENDS
+
+STACK_SEG SEGMENT
+    STACK  DW  100 DUP(0)
+    TOP EQU 200
+STACK_SEG ENDS
+
+CODE_SEG SEGMENT
+    ASSUME CS:CODE_SEG, DS:DATA_SEG, SS:STACK_SEG
+START:
+    MOV AX, STACK_SEG
+    MOV SS, AX
+    MOV SP, TOP
+    MOV AX, DATA_SEG
+    MOV DS, AX
+    CALL    FAR PTR INITIATE0   ;8259
+    CALL    FAR PTR INITIATE1   ;KEYBOARD
+    CALL    FAR PTR INITIATE2   ;8253
+    JMP     DISABLE
+LOOP1:
+    MOV AX, 600
+    MOV BX, COUNT
+    CMP BX, AX
+    JA  CODE
+    JMP LOOP1
+LOOP2:
+    MOV AX, 600*2
+    MOV BX, COUNT
+    CMP BX, AX
+    JA  CLR
+    JMP LOOP2
+DISABLE:
+    MOV AX, 0
+    MOV FLAG, AX
+    MOV AH, 9
+    MOV DX, SEG MESSAGE1
+    MOV DS, DX
+    MOV DX, OFFSET MESSAGE1
+    INT 21H
+    JMP LOOP1
+CODE:
+    MOV AX, 1
+    MOV FLAG, AX
+    MOV AH, 9
+    MOV DX, SEG MESSAGE2
+    MOV DS, DX
+    MOV DX, OFFSET MESSAGE2
+    INT 21H
+    JMP LOOP2
+CLR:
+    MOV AX, 0
+    MOV COUNT, AX
+    JMP DISABLE
+    
+
+INITIATE0   PROC    FAR ;8259
+    PUSH    AX
+    MOV     AL, 13H
+    OUT     20H, AL
+    MOV     AL, 8
+    OUT     21H, AL
+    MOV     AL, 9
+    OUT     21H, AL
+    POP     AX
+    RET
+INITIATE0   ENDP
+
+INITIATE1   PROC    FAR ;KETBOARD
+    PUSH    AX
+    PUSH    BX
+    PUSH    ES
+    CLI
+    MOV     AX, 0
+    MOV     ES, AX
+    MOV     BX, 9*4
+    MOV     AX, OFFSET  INTRAD1
+    MOV     ES:[BX], AX
+    MOV     AX, SEG INTRAD1
+    MOV     ES:[BX+2], AX
+    STI
+    POP     ES
+    POP     BX
+    POP     AX
+    RET
+INITIATE1   ENDP
+
+
+INITIATE2   PROC    FAR ;8253
+    PUSH    AX
+    MOV AL, 36H
+    OUT 43H, AL
+    MOV AL, 20H
+    OUT 40H, AL
+    MOV AL, 4EH
+    OUT 40H, AL
+    CLI
+    MOV AX, 0
+    MOV ES, AX
+    MOV BX, 8*4
+    MOV AX, OFFSET  INTRAD2
+    MOV ES:[BX], AX
+    MOV AX, SEG INTRAD2
+    MOV ES:[BX+2], AX
+    STI
+    POP AX
+    RET
+INITIATE2   ENDP
+
+INTRAD1:
+    PUSH    AX
+    PUSH    DX
+    PUSH    DS
+    STI
+    IN      AL, 060H
+    PUSH    AX
+    IN      AL, 061H
+    MOV     AH, AL
+    OR      AL, 80H
+    OUT     061H, AL
+    XCHG    AH, AL
+    OUT     061H, AL
+    POP     AX
+    CMP     AL, 39H
+    JE      EXIT
+    MOV     DX, FLAG
+    CMP     DX, 0
+    JE      BLOCK
+    MOV     BX, SEG KEYCODE
+    MOV     DS, BX
+    MOV     BX, 0
+COMPARE:
+    MOV     DL, [BX]
+    CMP     AL, DL
+    JE      DISPLAY
+    CMP     BX, 26
+    JE      BLOCK
+    ADD     BX, 1
+    JMP     COMPARE
+DISPLAY:
+    ADD     BX, 1
+    CMP     BX, 25
+    JBE     LOOP_A_Z
+    MOV     BX, 0
+LOOP_A_Z:
+    ADD     BX, 61H
+    MOV     DL, BL
+    MOV     AH, 2
+    INT     21H
+BLOCK:
+    CLI
+    MOV     AL, 20H
+    OUT     20H, AL
+    POP     DS
+    POP     DX
+    POP     AX
+    IRET
+
+INTRAD2:
+    STI
+    PUSH    AX
+    MOV     AX, COUNT
+    ADD     AX, 1
+    MOV     COUNT, AX
+    CLI
+    MOV     AL, 20H
+    OUT     20H, AL
+    POP     AX
+    IRET
+
+EXIT:
+    LEA     DX, NEXT_LAST_ADDER
+    INT     27H
+CODE_SEG    ENDS
+END START
